@@ -13,9 +13,52 @@
 let mapleader = " "
 
 " Shortcuts
-nnoremap <C-n> :NvimTreeToggle<CR>							" Open nvim-tree with Ctrl-n
-nnoremap <C-t> :tabnew<CR>:lcd %:p:h<CR>:term<CR>			" Open terminal tab at parent dir with Ctrl-t
-nnoremap <leader>py :belowright split<CR>:term py "%"<CR>	" Open a terminal window below current window and run as python file with <leader>py
+nnoremap <C-n> :NvimTreeToggle<CR>					" Open nvim-tree with Ctrl-n
+nnoremap <C-t> :tabnew<CR>:lcd %:p:h<CR>:term<CR>	" Open terminal tab at parent dir with Ctrl-t
+nnoremap <leader>py :lua RunPython()<CR>			" Open a terminal window below current window and run as python file with <leader>py
+
+" Setup for run in terminal
+lua <<EOF
+function RunPython()
+  local filename = vim.fn.expand('%')
+  local current_win = vim.api.nvim_get_current_win()
+  local cursor_pos = vim.api.nvim_win_get_cursor(current_win)
+
+  local function setup_return_autocmd(term_win)
+    local group = vim.api.nvim_create_augroup('RunPythonReturn', { clear = true })
+    vim.api.nvim_create_autocmd('WinClosed', {
+      group = group,
+      pattern = tostring(term_win),
+      once = true,
+      callback = function()
+        vim.api.nvim_set_current_win(current_win)
+        vim.api.nvim_win_set_cursor(current_win, cursor_pos)
+      end
+    })
+  end
+
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if vim.bo[buf].buftype == 'terminal' then
+      local job_id = vim.b[buf].terminal_job_id
+      vim.api.nvim_set_current_win(win)
+      if job_id and vim.fn.jobwait({job_id}, 0)[1] == -1 then
+        vim.fn.chansend(job_id, 'py ' .. filename .. '\n')
+      else
+        vim.cmd('term cmd /c echo py ' .. filename .. ' && py "' .. filename .. '"')
+      end
+      setup_return_autocmd(vim.api.nvim_get_current_win())
+      return
+    end
+  end
+
+  vim.cmd('normal! gg')
+  vim.cmd('belowright split')
+  vim.cmd('resize 15')
+  vim.cmd('term cmd /c echo py ' .. filename .. ' && py "' .. filename .. '"')
+  setup_return_autocmd(vim.api.nvim_get_current_win())
+end
+EOF
 
 call plug#begin('~/.config/nvim/autoload/plugged')
 
@@ -130,10 +173,10 @@ EOF
 lua <<EOF
 require('Comment').setup({
   toggler = {
-    line = '<C-/>',
+    line = '<C-_>',
   },
   opleader = {
-    line = '<C-/>',
+    line = '<C-_>',
   },
 })
 EOF
@@ -159,7 +202,7 @@ lua <<EOF
 	  ['<C-f>'] = cmp.mapping.scroll_docs(4),
 	  ['<Tab>'] = cmp.mapping.select_next_item(),
 	  ['<S-Tab>'] = cmp.mapping.select_prev_item(),
-	  ['<Space>'] = cmp.mapping.confirm({ select = false }),
+	  ['<CR>'] = cmp.mapping.confirm({ select = true }),
     }),
     sources = cmp.config.sources({
       { name = 'nvim_lsp' },
